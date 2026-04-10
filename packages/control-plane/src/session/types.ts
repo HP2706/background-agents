@@ -38,6 +38,7 @@ export interface SessionRow {
   spawn_depth: number;
   session_role: string; // 'default' or 'supervisor'
   code_server_enabled: number; // 0 = disabled (default), 1 = enabled
+  total_cost?: number; // Running aggregate of step_finish event costs
   sandbox_settings: string | null; // JSON blob of SandboxSettings
   created_at: number;
   updated_at: number;

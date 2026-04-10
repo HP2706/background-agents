@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS session (
   spawn_depth INTEGER NOT NULL DEFAULT 0,           -- 0 for top-level, parent.depth + 1 for children
   session_role TEXT NOT NULL DEFAULT 'default',     -- 'default' or 'supervisor'
   code_server_enabled INTEGER NOT NULL DEFAULT 0,   -- 0 = disabled, 1 = enabled (opt-in)
+  total_cost REAL NOT NULL DEFAULT 0,              -- Running session cost from step_finish events
   sandbox_settings TEXT DEFAULT NULL,               -- JSON blob of SandboxSettings (resolved at session creation)
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
@@ -398,11 +399,16 @@ export const MIGRATIONS: readonly SchemaMigration[] = [
   },
   {
     id: 30,
+    description: "Add total_cost to session",
+    run: `ALTER TABLE session ADD COLUMN total_cost REAL NOT NULL DEFAULT 0`,
+  },
+  {
+    id: 31,
     description: "Add session_role to session",
     run: `ALTER TABLE session ADD COLUMN session_role TEXT NOT NULL DEFAULT 'default'`,
   },
   {
-    id: 31,
+    id: 32,
     description: "Create watched_sessions table for supervisor DOs",
     run: (sql) => {
       sql.exec(`
@@ -415,7 +421,7 @@ export const MIGRATIONS: readonly SchemaMigration[] = [
     },
   },
   {
-    id: 32,
+    id: 33,
     description: "Create forwarded_event_buffer table for supervisor DOs",
     run: (sql) => {
       sql.exec(`
