@@ -489,6 +489,35 @@ const routes: Route[] = [
     handler: handleCancelChild,
   },
 
+  // Supervisor watched-sessions management
+  {
+    method: "GET",
+    pattern: parsePattern("/sessions/:id/watched-sessions"),
+    handler: handleListWatchedSessions,
+  },
+  {
+    method: "POST",
+    pattern: parsePattern("/sessions/:id/watched-sessions"),
+    handler: handleAddWatchedSession,
+  },
+  {
+    method: "POST",
+    pattern: parsePattern("/sessions/:id/watched-sessions/remove"),
+    handler: handleRemoveWatchedSession,
+  },
+
+  // Supervisor sandbox-auth routes (called by supervisor tools via bridge)
+  {
+    method: "GET",
+    pattern: parsePattern("/sessions/:id/supervisor/watched-sessions"),
+    handler: handleSupervisorListWatched,
+  },
+  {
+    method: "POST",
+    pattern: parsePattern("/sessions/:id/supervisor/guidance"),
+    handler: handleSupervisorSendGuidance,
+  },
+
   // Repository management
   ...reposRoutes,
 
@@ -681,7 +710,10 @@ async function handleCreateSession(
     scmEmail?: string;
   };
 
-  if (!body.repoOwner || !body.repoName) {
+  const sessionRole = body.sessionRole ?? "default";
+
+  // Supervisors don't need a repo; regular sessions do
+  if (sessionRole !== "supervisor" && (!body.repoOwner || !body.repoName)) {
     return error("repoOwner and repoName are required");
   }
 
@@ -689,15 +721,6 @@ async function handleCreateSession(
   if (body.branch && !/^[\w.\-/]+$/.test(body.branch)) {
     return error("Invalid branch name");
   }
-
-  // Normalize repo identifiers to lowercase for consistent storage
-  const repoOwner = body.repoOwner.toLowerCase();
-  const repoName = body.repoName.toLowerCase();
-
-  const resolved = await resolveRepoOrError(env, repoOwner, repoName, ctx, logger);
-  if (resolved instanceof Response) return resolved;
-
-  const { repoId, defaultBranch } = resolved;
 
   const userId = body.userId || "anonymous";
   const scmLogin = body.scmLogin;
@@ -709,6 +732,34 @@ async function handleCreateSession(
   const scmUserId = body.scmUserId;
   let scmTokenEncrypted: string | null = null;
   let scmRefreshTokenEncrypted: string | null = null;
+
+  // Supervisors skip repo resolution entirely
+  let repoOwner: string;
+  let repoName: string;
+  let repoId: number | null = null;
+  let defaultBranch: string | null = null;
+  let codeServerEnabled = false;
+  let sandboxSettings: SandboxSettings | null = null;
+
+  if (sessionRole === "supervisor") {
+    repoOwner = "_supervisor";
+    repoName = "_supervisor";
+  } else {
+    repoOwner = body.repoOwner!.toLowerCase();
+    repoName = body.repoName!.toLowerCase();
+
+    const resolved = await resolveRepoOrError(env, repoOwner, repoName, ctx, logger);
+    if (resolved instanceof Response) return resolved;
+
+    repoId = resolved.repoId;
+    defaultBranch = resolved.defaultBranch;
+
+    // Resolve code-server integration setting and sandbox settings for this repo
+    [codeServerEnabled, sandboxSettings] = await Promise.all([
+      resolveCodeServerEnabled(env.DB, repoOwner, repoName),
+      resolveSandboxSettings(env.DB, repoOwner, repoName),
+    ]);
+  }
 
   // If SCM token provided, encrypt it
   if (scmToken && env.TOKEN_ENCRYPTION_KEY) {
@@ -746,12 +797,6 @@ async function handleCreateSession(
       ? body.reasoningEffort
       : null;
 
-  // Resolve code-server integration setting and sandbox settings for this repo
-  const [codeServerEnabled, sandboxSettings] = await Promise.all([
-    resolveCodeServerEnabled(env.DB, repoOwner, repoName),
-    resolveSandboxSettings(env.DB, repoOwner, repoName),
-  ]);
-
   // Initialize session with user info and optional encrypted token
   const initResponse = await stub.fetch(
     internalRequest(
@@ -779,6 +824,7 @@ async function handleCreateSession(
           scmUserId,
           codeServerEnabled,
           sandboxSettings,
+          sessionRole,
         }),
       },
       ctx
@@ -819,6 +865,7 @@ async function handleCreateSession(
     reasoningEffort,
     baseBranch: body.branch || defaultBranch || "main",
     status: "created",
+    sessionRole,
     createdAt: now,
     updatedAt: now,
   });
@@ -1659,4 +1706,125 @@ async function handleCancelChild(
   }
 
   return response;
+}
+
+// ── Supervisor watched-sessions handlers ────────────────────────────
+
+async function handleListWatchedSessions(
+  _request: Request,
+  env: Env,
+  match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  const sessionId = match.groups?.id;
+  if (!sessionId) return error("Session ID required");
+
+  const doId = env.SESSION.idFromName(sessionId);
+  const stub = env.SESSION.get(doId);
+
+  return stub.fetch(
+    internalRequest(
+      buildSessionInternalUrl(SessionInternalPaths.supervisorWatchedSessions),
+      undefined,
+      ctx
+    )
+  );
+}
+
+async function handleAddWatchedSession(
+  request: Request,
+  env: Env,
+  match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  const sessionId = match.groups?.id;
+  if (!sessionId) return error("Session ID required");
+
+  const doId = env.SESSION.idFromName(sessionId);
+  const stub = env.SESSION.get(doId);
+
+  return stub.fetch(
+    internalRequest(
+      buildSessionInternalUrl(SessionInternalPaths.supervisorAddWatched),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: await request.text(),
+      },
+      ctx
+    )
+  );
+}
+
+async function handleRemoveWatchedSession(
+  request: Request,
+  env: Env,
+  match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  const sessionId = match.groups?.id;
+  if (!sessionId) return error("Session ID required");
+
+  const doId = env.SESSION.idFromName(sessionId);
+  const stub = env.SESSION.get(doId);
+
+  return stub.fetch(
+    internalRequest(
+      buildSessionInternalUrl(SessionInternalPaths.supervisorRemoveWatched),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: await request.text(),
+      },
+      ctx
+    )
+  );
+}
+
+// Supervisor sandbox-auth routes (called by tools via bridge)
+
+async function handleSupervisorListWatched(
+  _request: Request,
+  env: Env,
+  match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  const sessionId = match.groups?.id;
+  if (!sessionId) return error("Session ID required");
+
+  const doId = env.SESSION.idFromName(sessionId);
+  const stub = env.SESSION.get(doId);
+
+  return stub.fetch(
+    internalRequest(
+      buildSessionInternalUrl(SessionInternalPaths.supervisorWatchedSessions),
+      undefined,
+      ctx
+    )
+  );
+}
+
+async function handleSupervisorSendGuidance(
+  request: Request,
+  env: Env,
+  match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  const sessionId = match.groups?.id;
+  if (!sessionId) return error("Session ID required");
+
+  const doId = env.SESSION.idFromName(sessionId);
+  const stub = env.SESSION.get(doId);
+
+  return stub.fetch(
+    internalRequest(
+      buildSessionInternalUrl(SessionInternalPaths.supervisorGuidance),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: await request.text(),
+      },
+      ctx
+    )
+  );
 }

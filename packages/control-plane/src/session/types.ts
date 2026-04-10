@@ -36,6 +36,7 @@ export interface SessionRow {
   parent_session_id: string | null;
   spawn_source: SpawnSource;
   spawn_depth: number;
+  session_role: string; // 'default' or 'supervisor'
   code_server_enabled: number; // 0 = disabled (default), 1 = enabled
   sandbox_settings: string | null; // JSON blob of SandboxSettings
   created_at: number;

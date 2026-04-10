@@ -101,6 +101,7 @@ describe("SessionRepository", () => {
         "claude-sonnet-4",
         null,
         "created",
+        "default",
         null,
         "user",
         0,

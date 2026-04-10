@@ -40,6 +40,7 @@ export interface CreateSandboxRequest {
   branch?: string;
   codeServerEnabled?: boolean;
   sandboxSettings?: SandboxSettings;
+  sessionRole?: string;
 }
 
 export interface CreateSandboxResponse {
@@ -68,6 +69,7 @@ export interface RestoreSandboxRequest {
   branch?: string;
   codeServerEnabled?: boolean;
   sandboxSettings?: SandboxSettings;
+  sessionRole?: string;
 }
 
 export interface RestoreSandboxResponse {
@@ -258,6 +260,7 @@ export class ModalClient {
           branch: request.branch || null,
           code_server_enabled: request.codeServerEnabled ?? false,
           sandbox_settings: request.sandboxSettings ?? null,
+          session_role: request.sessionRole ?? "default",
         }),
       });
 
@@ -335,6 +338,7 @@ export class ModalClient {
             provider: request.provider,
             model: request.model,
             branch: request.branch || null,
+            session_role: request.sessionRole ?? "default",
           },
           sandbox_id: request.sandboxId,
           control_plane_url: request.controlPlaneUrl,

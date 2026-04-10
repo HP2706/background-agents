@@ -33,7 +33,7 @@ cd "${DEPLOY_PATH}" || {
 # Deploy using Modal CLI
 if [ "${DEPLOY_MODULE}" = "deploy" ]; then
     # Method 1: Use deploy.py wrapper (recommended)
-    modal deploy deploy.py || {
+    uv run modal deploy deploy.py || {
         echo "Error: Modal deployment failed for ${APP_NAME}"
         exit 1
     }

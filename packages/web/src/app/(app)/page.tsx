@@ -264,6 +264,23 @@ export default function Home() {
     }
   };
 
+  const handleCreateSupervisor = async () => {
+    const res = await fetch("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionRole: "supervisor",
+        model: selectedModel,
+        title: "Supervisor Session",
+      }),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { sessionId: string };
+      mutate(SIDEBAR_SESSIONS_KEY);
+      router.push("/session/" + data.sessionId);
+    }
+  };
+
   return (
     <HomeContent
       isAuthenticated={!!session}
@@ -286,6 +303,7 @@ export default function Home() {
       error={error}
       handleSubmit={handleSubmit}
       modelOptions={enabledModelOptions}
+      onCreateSupervisor={handleCreateSupervisor}
     />
   );
 }
@@ -311,6 +329,7 @@ function HomeContent({
   error,
   handleSubmit,
   modelOptions,
+  onCreateSupervisor,
 }: {
   isAuthenticated: boolean;
   repos: Repo[];
@@ -332,6 +351,7 @@ function HomeContent({
   error: string;
   handleSubmit: (e: React.FormEvent) => void;
   modelOptions: ModelCategory[];
+  onCreateSupervisor: () => void;
 }) {
   const { isOpen, toggle } = useSidebarContext();
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -382,160 +402,173 @@ function HomeContent({
 
           {/* Input box - only show when authenticated */}
           {isAuthenticated && (
-            <form onSubmit={handleSubmit}>
-              {error && (
-                <div className="mb-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-4 py-3 border border-red-200 dark:border-red-800 text-sm">
-                  {error}
-                </div>
-              )}
-
-              <div className="border border-border bg-input">
-                {/* Text input area */}
-                <div className="relative">
-                  <textarea
-                    ref={inputRef}
-                    value={prompt}
-                    onChange={(e) => handlePromptChange(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="What do you want to build?"
-                    disabled={creating}
-                    className="w-full resize-none bg-transparent px-4 pt-4 pb-12 focus:outline-none text-foreground placeholder:text-secondary-foreground disabled:opacity-50"
-                    rows={3}
-                  />
-                  {/* Submit button */}
-                  <div className="absolute bottom-3 right-3 flex items-center gap-2">
-                    {isCreatingSession && (
-                      <span className="text-xs text-accent">Warming sandbox...</span>
-                    )}
-                    <button
-                      type="submit"
-                      disabled={!prompt.trim() || creating || !selectedRepo}
-                      className="p-2 text-secondary-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition"
-                      title={`Send (${SHORTCUT_LABELS.SEND_PROMPT})`}
-                      aria-label={`Send (${SHORTCUT_LABELS.SEND_PROMPT})`}
-                    >
-                      {creating ? (
-                        <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <SendIcon className="w-5 h-5" />
-                      )}
-                    </button>
+            <>
+              <form onSubmit={handleSubmit}>
+                {error && (
+                  <div className="mb-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-4 py-3 border border-red-200 dark:border-red-800 text-sm">
+                    {error}
                   </div>
-                </div>
+                )}
 
-                {/* Footer row with repo and model selectors */}
-                <div className="flex flex-col gap-2 px-4 py-2 border-t border-border-muted sm:flex-row sm:items-center sm:justify-between sm:gap-0">
-                  {/* Left side - Repo selector + Model selector */}
-                  <div className="flex flex-wrap items-center gap-2 sm:gap-4 min-w-0">
-                    {/* Repo selector */}
-                    <Combobox
-                      value={selectedRepo}
-                      onChange={(value) => setSelectedRepo(value)}
-                      items={repos.map((repo) => ({
-                        value: repo.fullName,
-                        label: repo.name,
-                        description: `${repo.owner}${repo.private ? " \u2022 private" : ""}`,
-                      }))}
-                      searchable
-                      searchPlaceholder="Search repositories..."
-                      filterFn={(option, query) =>
-                        option.label.toLowerCase().includes(query) ||
-                        (option.description?.toLowerCase().includes(query) ?? false) ||
-                        String(option.value).toLowerCase().includes(query)
-                      }
-                      direction="up"
-                      dropdownWidth="w-72"
-                      disabled={creating || loadingRepos}
-                      triggerClassName="flex max-w-full items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed transition"
-                    >
-                      <RepoIcon className="w-4 h-4" />
-                      <span className="truncate max-w-[12rem] sm:max-w-none">
-                        {loadingRepos ? "Loading..." : displayRepoName}
-                      </span>
-                      <ChevronDownIcon className="w-3 h-3" />
-                    </Combobox>
-
-                    {/* Branch selector */}
-                    <Combobox
-                      value={selectedBranch}
-                      onChange={(value) => setSelectedBranch(value)}
-                      items={branches.map((b) => ({
-                        value: b.name,
-                        label: b.name,
-                      }))}
-                      searchable
-                      searchPlaceholder="Search branches..."
-                      filterFn={(option, query) => option.label.toLowerCase().includes(query)}
-                      direction="up"
-                      dropdownWidth="w-56"
-                      disabled={creating || !selectedRepo || loadingBranches}
-                      triggerClassName="flex max-w-full items-center gap-1 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed transition"
-                    >
-                      <BranchIcon className="w-3.5 h-3.5" />
-                      <span className="truncate max-w-[9rem] sm:max-w-none">
-                        {loadingBranches ? "Loading..." : selectedBranch || "branch"}
-                      </span>
-                      <ChevronDownIcon className="w-3 h-3" />
-                    </Combobox>
-
-                    {/* Model selector */}
-                    <Combobox
-                      value={selectedModel}
-                      onChange={(value) => setSelectedModel(value)}
-                      items={
-                        modelOptions.map((group) => ({
-                          category: group.category,
-                          options: group.models.map((model) => ({
-                            value: model.id,
-                            label: model.name,
-                            description: model.description,
-                          })),
-                        })) as ComboboxGroup[]
-                      }
-                      direction="up"
-                      dropdownWidth="w-56"
+                <div className="border border-border bg-input">
+                  {/* Text input area */}
+                  <div className="relative">
+                    <textarea
+                      ref={inputRef}
+                      value={prompt}
+                      onChange={(e) => handlePromptChange(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder="What do you want to build?"
                       disabled={creating}
-                      triggerClassName="flex max-w-full items-center gap-1 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed transition"
-                    >
-                      <ModelIcon className="w-3.5 h-3.5" />
-                      <span className="truncate max-w-[9rem] sm:max-w-none">
-                        {formatModelNameLower(selectedModel)}
-                      </span>
-                    </Combobox>
-
-                    {/* Reasoning effort pills */}
-                    <ReasoningEffortPills
-                      selectedModel={selectedModel}
-                      reasoningEffort={reasoningEffort}
-                      onSelect={setReasoningEffort}
-                      disabled={creating}
+                      className="w-full resize-none bg-transparent px-4 pt-4 pb-12 focus:outline-none text-foreground placeholder:text-secondary-foreground disabled:opacity-50"
+                      rows={3}
                     />
+                    {/* Submit button */}
+                    <div className="absolute bottom-3 right-3 flex items-center gap-2">
+                      {isCreatingSession && (
+                        <span className="text-xs text-accent">Warming sandbox...</span>
+                      )}
+                      <button
+                        type="submit"
+                        disabled={!prompt.trim() || creating || !selectedRepo}
+                        className="p-2 text-secondary-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition"
+                        title={`Send (${SHORTCUT_LABELS.SEND_PROMPT})`}
+                        aria-label={`Send (${SHORTCUT_LABELS.SEND_PROMPT})`}
+                      >
+                        {creating ? (
+                          <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <SendIcon className="w-5 h-5" />
+                        )}
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Right side - Agent label */}
-                  <span className="hidden sm:inline text-sm text-muted-foreground">
-                    build agent
-                  </span>
+                  {/* Footer row with repo and model selectors */}
+                  <div className="flex flex-col gap-2 px-4 py-2 border-t border-border-muted sm:flex-row sm:items-center sm:justify-between sm:gap-0">
+                    {/* Left side - Repo selector + Model selector */}
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-4 min-w-0">
+                      {/* Repo selector */}
+                      <Combobox
+                        value={selectedRepo}
+                        onChange={(value) => setSelectedRepo(value)}
+                        items={repos.map((repo) => ({
+                          value: repo.fullName,
+                          label: repo.name,
+                          description: `${repo.owner}${repo.private ? " \u2022 private" : ""}`,
+                        }))}
+                        searchable
+                        searchPlaceholder="Search repositories..."
+                        filterFn={(option, query) =>
+                          option.label.toLowerCase().includes(query) ||
+                          (option.description?.toLowerCase().includes(query) ?? false) ||
+                          String(option.value).toLowerCase().includes(query)
+                        }
+                        direction="up"
+                        dropdownWidth="w-72"
+                        disabled={creating || loadingRepos}
+                        triggerClassName="flex max-w-full items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed transition"
+                      >
+                        <RepoIcon className="w-4 h-4" />
+                        <span className="truncate max-w-[12rem] sm:max-w-none">
+                          {loadingRepos ? "Loading..." : displayRepoName}
+                        </span>
+                        <ChevronDownIcon className="w-3 h-3" />
+                      </Combobox>
+
+                      {/* Branch selector */}
+                      <Combobox
+                        value={selectedBranch}
+                        onChange={(value) => setSelectedBranch(value)}
+                        items={branches.map((b) => ({
+                          value: b.name,
+                          label: b.name,
+                        }))}
+                        searchable
+                        searchPlaceholder="Search branches..."
+                        filterFn={(option, query) => option.label.toLowerCase().includes(query)}
+                        direction="up"
+                        dropdownWidth="w-56"
+                        disabled={creating || !selectedRepo || loadingBranches}
+                        triggerClassName="flex max-w-full items-center gap-1 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed transition"
+                      >
+                        <BranchIcon className="w-3.5 h-3.5" />
+                        <span className="truncate max-w-[9rem] sm:max-w-none">
+                          {loadingBranches ? "Loading..." : selectedBranch || "branch"}
+                        </span>
+                        <ChevronDownIcon className="w-3 h-3" />
+                      </Combobox>
+
+                      {/* Model selector */}
+                      <Combobox
+                        value={selectedModel}
+                        onChange={(value) => setSelectedModel(value)}
+                        items={
+                          modelOptions.map((group) => ({
+                            category: group.category,
+                            options: group.models.map((model) => ({
+                              value: model.id,
+                              label: model.name,
+                              description: model.description,
+                            })),
+                          })) as ComboboxGroup[]
+                        }
+                        direction="up"
+                        dropdownWidth="w-56"
+                        disabled={creating}
+                        triggerClassName="flex max-w-full items-center gap-1 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed transition"
+                      >
+                        <ModelIcon className="w-3.5 h-3.5" />
+                        <span className="truncate max-w-[9rem] sm:max-w-none">
+                          {formatModelNameLower(selectedModel)}
+                        </span>
+                      </Combobox>
+
+                      {/* Reasoning effort pills */}
+                      <ReasoningEffortPills
+                        selectedModel={selectedModel}
+                        reasoningEffort={reasoningEffort}
+                        onSelect={setReasoningEffort}
+                        disabled={creating}
+                      />
+                    </div>
+
+                    {/* Right side - Agent label */}
+                    <span className="hidden sm:inline text-sm text-muted-foreground">
+                      build agent
+                    </span>
+                  </div>
                 </div>
+
+                {selectedRepoObj && (
+                  <div className="mt-3 text-center">
+                    <Link
+                      href="/settings"
+                      className="text-xs text-muted-foreground hover:text-foreground transition"
+                    >
+                      Manage secrets and settings
+                    </Link>
+                  </div>
+                )}
+
+                {repos.length === 0 && !loadingRepos && (
+                  <p className="mt-3 text-sm text-muted-foreground text-center">
+                    No repositories found. Make sure you have granted access to your repositories.
+                  </p>
+                )}
+              </form>
+
+              {/* Create Supervisor */}
+              <div className="mt-4 flex justify-center">
+                <button
+                  type="button"
+                  onClick={onCreateSupervisor}
+                  className="text-xs text-muted-foreground hover:text-foreground transition"
+                >
+                  or create a supervisor session
+                </button>
               </div>
-
-              {selectedRepoObj && (
-                <div className="mt-3 text-center">
-                  <Link
-                    href="/settings"
-                    className="text-xs text-muted-foreground hover:text-foreground transition"
-                  >
-                    Manage secrets and settings
-                  </Link>
-                </div>
-              )}
-
-              {repos.length === 0 && !loadingRepos && (
-                <p className="mt-3 text-sm text-muted-foreground text-center">
-                  No repositories found. Make sure you have granted access to your repositories.
-                </p>
-              )}
-            </form>
+            </>
           )}
         </div>
       </div>

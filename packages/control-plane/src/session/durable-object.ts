@@ -85,6 +85,10 @@ import {
   createParticipantsHandler,
   type ParticipantsHandler,
 } from "./http/handlers/participants.handler";
+import {
+  createSupervisorHandler,
+  type SupervisorHandler,
+} from "./http/handlers/supervisor.handler";
 import { MessageService } from "./services/message.service";
 import { createAlarmHandler, type AlarmHandler } from "./alarm/handler";
 
@@ -142,6 +146,10 @@ export class SessionDO extends DurableObject<Env> {
   private _alarmHandler: AlarmHandler | null = null;
   // Sandbox event processor (lazily initialized)
   private _sandboxEventProcessor: SessionSandboxEventProcessor | null = null;
+  // Supervisor handler (lazily initialized)
+  private _supervisorHandler: SupervisorHandler | null = null;
+  // Transient set of supervisor session IDs watching this session (for event forwarding)
+  private _supervisorIds: Set<string> = new Set();
 
   // Internal HTTP route table (transport wiring only; handlers remain on SessionDO).
   private readonly routes = createSessionInternalRoutes({
@@ -166,6 +174,13 @@ export class SessionDO extends DurableObject<Env> {
     childSummary: () => this.childSessionsHandler.getChildSummary(),
     cancel: () => this.sessionLifecycleHandler.cancel(),
     childSessionUpdate: (request) => this.childSessionsHandler.childSessionUpdate(request),
+    // Supervisor routes
+    supervisorForwardEvent: (request) => this.supervisorHandler.forwardEvent(request),
+    supervisorListWatched: () => this.supervisorHandler.listWatched(),
+    supervisorAddWatched: (request) => this.supervisorHandler.addWatched(request),
+    supervisorRemoveWatched: (request) => this.supervisorHandler.removeWatched(request),
+    supervisorGuidance: (request) => this.supervisorHandler.sendGuidance(request),
+    registerSupervisor: (request) => this.handleRegisterSupervisor(request),
   });
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -354,6 +369,37 @@ export class SessionDO extends DurableObject<Env> {
     return this._childSessionsHandler;
   }
 
+  private get supervisorHandler(): SupervisorHandler {
+    if (!this._supervisorHandler) {
+      this._supervisorHandler = createSupervisorHandler({
+        repository: this.repository,
+        getSession: () => this.getSession(),
+        env: this.env,
+        log: this.log,
+        scheduleAlarm: async (timestamp: number) => {
+          await this.ctx.storage.setAlarm(timestamp);
+        },
+        getCurrentAlarm: async () => {
+          return (await this.ctx.storage.getAlarm()) ?? null;
+        },
+        broadcast: (message) => this.broadcast(message),
+      });
+    }
+    return this._supervisorHandler;
+  }
+
+  private async handleRegisterSupervisor(request: Request): Promise<Response> {
+    const body = (await request.json()) as { supervisorSessionId: string };
+    if (body.supervisorSessionId) {
+      this._supervisorIds.add(body.supervisorSessionId);
+    }
+    return Response.json({ ok: true });
+  }
+
+  getSupervisorIds(): Set<string> {
+    return this._supervisorIds;
+  }
+
   private get sandboxHandler(): SandboxHandler {
     if (!this._sandboxHandler) {
       this._sandboxHandler = createSandboxHandler({
@@ -482,6 +528,7 @@ export class SessionDO extends DurableObject<Env> {
         executionTimeoutMs: this.executionTimeoutMs,
         now: () => Date.now(),
         getLog: () => this.log,
+        enqueueReviewPrompt: (events) => this.enqueueSupervisorReviewPrompt(events),
       });
     }
 
@@ -505,6 +552,8 @@ export class SessionDO extends DurableObject<Env> {
         updateLastActivity: (timestamp) => this.updateLastActivity(timestamp),
         scheduleInactivityCheck: () => this.scheduleInactivityCheck(),
         processMessageQueue: () => this.messageQueue.processMessageQueue(),
+        getSupervisorIds: () => this._supervisorIds,
+        forwardToSupervisors: (event) => this.forwardEventToSupervisors(event),
       });
     }
 
@@ -1309,6 +1358,112 @@ export class SessionDO extends DurableObject<Env> {
    */
   private async processSandboxEvent(event: SandboxEvent): Promise<void> {
     await this.sandboxEventProcessor.processSandboxEvent(event);
+  }
+
+  /**
+   * Forward a sandbox event to all registered supervisor sessions (fire-and-forget).
+   */
+  private forwardEventToSupervisors(event: SandboxEvent): void {
+    if (this._supervisorIds.size === 0) return;
+
+    const session = this.getSession();
+    const sessionId = session?.session_name ?? session?.id ?? this.ctx.id.toString();
+    const sessionTitle = session?.title ?? null;
+
+    for (const supervisorId of this._supervisorIds) {
+      const supervisorDoId = this.env.SESSION.idFromName(supervisorId);
+      const supervisorStub = this.env.SESSION.get(supervisorDoId);
+
+      this.ctx.waitUntil(
+        supervisorStub
+          .fetch(
+            new Request(buildSessionInternalUrl(SessionInternalPaths.supervisorForwardEvent), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                sourceSessionId: sessionId,
+                sourceSessionTitle: sessionTitle,
+                event,
+              }),
+            })
+          )
+          .catch((err) => {
+            this.log.warn("Failed to forward event to supervisor", {
+              supervisor_id: supervisorId,
+              error: String(err),
+            });
+          })
+      );
+    }
+  }
+
+  /**
+   * Format a batch of forwarded events into a structured review prompt
+   * and enqueue it on this supervisor session's message queue.
+   */
+  private async enqueueSupervisorReviewPrompt(
+    events: Array<{
+      id: string;
+      source_session_id: string;
+      source_session_title: string | null;
+      event_type: string;
+      event_data: string;
+      received_at: number;
+    }>
+  ): Promise<void> {
+    // Group events by source session
+    const bySession = new Map<string, { title: string | null; events: typeof events }>();
+    for (const e of events) {
+      let group = bySession.get(e.source_session_id);
+      if (!group) {
+        group = { title: e.source_session_title, events: [] };
+        bySession.set(e.source_session_id, group);
+      }
+      group.events.push(e);
+    }
+
+    // Build structured review prompt
+    const sections: string[] = [];
+    for (const [sessionId, group] of bySession) {
+      const label = group.title ? `"${group.title}" (${sessionId})` : sessionId;
+      const lines = group.events.map(
+        (e) => `- [${e.event_type}] ${this.summarizeEventData(e.event_type, e.event_data)}`
+      );
+      sections.push(`### Session ${label}\n${lines.join("\n")}`);
+    }
+
+    const content = `## Supervisor Review — Event Batch
+
+The following events occurred across your watched sessions:
+
+${sections.join("\n\n")}
+
+Analyze these events. If you detect problems (repeated errors, stalls, file conflicts), use send-guidance to intervene. If everything looks fine, respond briefly that no action is needed.`;
+
+    await this.messageQueue.enqueuePromptFromApi({
+      content,
+      authorId: "system",
+      source: "automation",
+    });
+  }
+
+  /**
+   * Create a short summary line for a forwarded event.
+   */
+  private summarizeEventData(eventType: string, eventData: string): string {
+    const parsed = JSON.parse(eventData) as Record<string, unknown>;
+    switch (eventType) {
+      case "tool_call":
+        return `${parsed.tool ?? "unknown_tool"}: ${parsed.input ? String(parsed.input).slice(0, 100) : ""}`;
+      case "error":
+        return String(parsed.error ?? parsed.message ?? "unknown error").slice(0, 150);
+      case "execution_complete":
+        return `success=${String(parsed.success ?? "unknown")}`;
+      case "step_finish":
+        return "step completed";
+      default:
+        return eventType;
+    }
   }
 
   /**

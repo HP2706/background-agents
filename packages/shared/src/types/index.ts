@@ -42,6 +42,7 @@ export type EventType =
   | "user_message";
 export type ParticipantRole = "owner" | "member";
 export type SpawnSource = "user" | "agent" | "automation";
+export type SessionRole = "default" | "supervisor";
 export type ConfidenceLevel = "high" | "medium" | "low";
 
 // Participant in a session
@@ -66,6 +67,7 @@ export interface Session {
   currentSha: string | null;
   opencodeSessionId: string | null;
   status: SessionStatus;
+  sessionRole: SessionRole;
   parentSessionId: string | null;
   spawnSource: SpawnSource;
   spawnDepth: number;
@@ -305,6 +307,16 @@ export type ServerMessage =
   | { type: "code_server_info"; url: string; password: string }
   | { type: "ttyd_info"; url: string; token: string }
   | { type: "tunnel_urls"; urls: Record<string, string> }
+  | {
+      type: "watched_session_event";
+      events: SupervisorForwardedEvent[];
+    }
+  | {
+      type: "watched_session_update";
+      watchedSessionId: string;
+      status: SessionStatus;
+      title: string | null;
+    }
   | { type: "error"; code: string; message: string };
 
 // Session state sent to clients
@@ -316,6 +328,7 @@ export interface SessionState {
   baseBranch: string;
   branchName: string | null;
   status: SessionStatus;
+  sessionRole?: SessionRole;
   sandboxStatus: SandboxStatus;
   messageCount: number;
   createdAt: number;
@@ -323,6 +336,7 @@ export interface SessionState {
   reasoningEffort?: string;
   isProcessing?: boolean;
   parentSessionId?: string | null;
+  watchedSessionIds?: string[];
   codeServerUrl?: string | null;
   codeServerPassword?: string | null;
   tunnelUrls?: Record<string, string> | null;
@@ -496,12 +510,15 @@ export type CallbackContext =
 
 // API response types
 export interface CreateSessionRequest {
-  repoOwner: string;
-  repoName: string;
+  repoOwner?: string;
+  repoName?: string;
   title?: string;
   model?: string;
   reasoningEffort?: string;
   branch?: string;
+  sessionRole?: SessionRole;
+  /** Session IDs to watch (only for supervisor sessions). */
+  watchedSessionIds?: string[];
 }
 
 export interface CreateSessionResponse {
@@ -513,6 +530,25 @@ export interface ListSessionsResponse {
   sessions: Session[];
   cursor?: string;
   hasMore: boolean;
+}
+
+// --- Supervisor types ---
+
+/** An event forwarded from a watched session to a supervisor session. */
+export interface SupervisorForwardedEvent {
+  sourceSessionId: string;
+  sourceSessionTitle: string | null;
+  event: SandboxEvent;
+  forwardedAt: number;
+}
+
+/** Summary of a watched session as seen by the supervisor. */
+export interface WatchedSessionSummary {
+  sessionId: string;
+  title: string | null;
+  status: SessionStatus;
+  sandboxStatus?: SandboxStatus;
+  addedAt: number;
 }
 
 // --- Agent-spawned sub-sessions ---

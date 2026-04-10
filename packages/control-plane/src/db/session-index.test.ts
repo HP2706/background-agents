@@ -11,6 +11,7 @@ type SessionRow = {
   reasoning_effort: string | null;
   base_branch: string | null;
   status: string;
+  session_role: string;
   parent_session_id: string | null;
   spawn_source: "user" | "agent" | "automation";
   spawn_depth: number;
@@ -122,6 +123,7 @@ class FakeD1Database {
         reasoningEffort,
         baseBranch,
         status,
+        sessionRole,
         parentSessionId,
         spawnSource,
         spawnDepth,
@@ -137,6 +139,7 @@ class FakeD1Database {
         string,
         string | null,
         string | null,
+        string,
         string,
         string | null,
         "user" | "agent" | "automation",
@@ -157,6 +160,7 @@ class FakeD1Database {
           reasoning_effort: reasoningEffort,
           base_branch: baseBranch,
           status,
+          session_role: sessionRole,
           parent_session_id: parentSessionId,
           spawn_source: spawnSource,
           spawn_depth: spawnDepth,
@@ -315,6 +319,7 @@ describe("SessionIndexStore", () => {
       expect(result).toEqual({
         ...session,
         // Defaults applied for missing optional fields
+        sessionRole: "default",
         parentSessionId: null,
         spawnSource: "user",
         spawnDepth: 0,

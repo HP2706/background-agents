@@ -76,6 +76,7 @@ export class ModalSandboxProvider implements SandboxProvider {
           branch: config.branch,
           codeServerEnabled: config.codeServerEnabled,
           sandboxSettings: config.sandboxSettings,
+          sessionRole: config.sessionRole,
         },
         config.correlation
       );
@@ -116,6 +117,7 @@ export class ModalSandboxProvider implements SandboxProvider {
           branch: config.branch,
           codeServerEnabled: config.codeServerEnabled,
           sandboxSettings: config.sandboxSettings,
+          sessionRole: config.sessionRole,
         },
         config.correlation
       );
