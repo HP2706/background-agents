@@ -11,6 +11,7 @@ import {
   TunnelUrlsSection,
 } from "./sidebar";
 import { ChildSessionsSection } from "./sidebar/child-sessions-section";
+import { WatchedSessionsSection } from "./sidebar/watched-sessions-section";
 import { TerminalIcon, LinkIcon } from "@/components/ui/icons";
 import { buildAuthenticatedUrl } from "@/lib/urls";
 import { extractLatestTasks } from "@/lib/tasks";
@@ -137,6 +138,11 @@ export function SessionRightSidebarContent({
 
       {/* Child Sessions */}
       <ChildSessionsSection sessionId={sessionState.id} />
+
+      {/* Watched Sessions (supervisor only) */}
+      {sessionState.sessionRole === "supervisor" && (
+        <WatchedSessionsSection sessionId={sessionState.id} />
+      )}
 
       {/* Files Changed */}
       {filesChanged.length > 0 && (

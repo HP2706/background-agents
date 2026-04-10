@@ -439,7 +439,10 @@ function SessionListItem({
   const timestamp = session.updatedAt || session.createdAt;
   const relativeTime = formatRelativeTime(timestamp);
   const displayTitle = session.title || `${session.repoOwner}/${session.repoName}`;
-  const repoInfo = `${session.repoOwner}/${session.repoName}`;
+  const repoInfo =
+    session.sessionRole === "supervisor"
+      ? "supervisor"
+      : `${session.repoOwner}/${session.repoName}`;
   // Orphan child (parent filtered out) — show a subtle badge
   const isOrphanChild = session.parentSessionId && session.spawnSource === "agent";
   const [isRenaming, setIsRenaming] = useState(false);
@@ -632,6 +635,12 @@ function SessionListItem({
               <>
                 <span>·</span>
                 <span className="text-accent">sub-task</span>
+              </>
+            )}
+            {session.sessionRole === "supervisor" && (
+              <>
+                <span>·</span>
+                <span className="text-purple-500">supervisor</span>
               </>
             )}
             {session.baseBranch && session.baseBranch !== "main" && (

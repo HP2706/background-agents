@@ -31,6 +31,7 @@ interface InitRequest {
   spawnDepth?: number;
   codeServerEnabled?: boolean;
   sandboxSettings?: SandboxSettings;
+  sessionRole?: string;
 }
 
 export interface SessionLifecycleHandlerDeps {
@@ -121,6 +122,7 @@ export function createSessionLifecycleHandler(
         spawnDepth: body.spawnDepth ?? 0,
         codeServerEnabled: body.codeServerEnabled ?? false,
         sandboxSettings: body.sandboxSettings ? JSON.stringify(body.sandboxSettings) : null,
+        sessionRole: body.sessionRole ?? "default",
         createdAt: now,
         updatedAt: now,
       });
@@ -175,6 +177,7 @@ export function createSessionLifecycleHandler(
         status: session.status,
         model: session.model,
         reasoningEffort: session.reasoning_effort ?? undefined,
+        sessionRole: session.session_role ?? "default",
         createdAt: session.created_at,
         updatedAt: session.updated_at,
         sandbox: sandbox

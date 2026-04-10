@@ -24,6 +24,7 @@ function createSession(overrides: Partial<SessionRow> = {}): SessionRow {
     spawn_depth: 0,
     code_server_enabled: 0,
     sandbox_settings: null,
+    session_role: "default",
     created_at: 1000,
     updated_at: 2000,
     ...overrides,
@@ -209,6 +210,7 @@ describe("createSessionLifecycleHandler", () => {
       model: "anthropic/claude-haiku-4-5",
       reasoningEffort: "high",
       status: "created",
+      sessionRole: "default",
       parentSessionId: "parent-1",
       spawnSource: "agent",
       spawnDepth: 1,
@@ -337,6 +339,7 @@ describe("createSessionLifecycleHandler", () => {
       status: "active",
       model: "anthropic/claude-haiku-4-5",
       reasoningEffort: "high",
+      sessionRole: "default",
       createdAt: 1000,
       updatedAt: 2000,
       sandbox: {

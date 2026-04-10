@@ -56,6 +56,8 @@ function createProcessor() {
     updateLastActivity,
     scheduleInactivityCheck,
     processMessageQueue,
+    getSupervisorIds: () => new Set<string>(),
+    forwardToSupervisors: vi.fn(),
   });
 
   return {

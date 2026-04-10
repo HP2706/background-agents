@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS session (
   parent_session_id TEXT,                           -- Parent session ID (NULL for top-level)
   spawn_source TEXT NOT NULL DEFAULT 'user',        -- 'user' or 'agent'
   spawn_depth INTEGER NOT NULL DEFAULT 0,           -- 0 for top-level, parent.depth + 1 for children
+  session_role TEXT NOT NULL DEFAULT 'default',     -- 'default' or 'supervisor'
   code_server_enabled INTEGER NOT NULL DEFAULT 0,   -- 0 = disabled, 1 = enabled (opt-in)
   total_cost REAL NOT NULL DEFAULT 0,              -- Running session cost from step_finish events
   sandbox_settings TEXT DEFAULT NULL,               -- JSON blob of SandboxSettings (resolved at session creation)
@@ -120,6 +121,24 @@ CREATE TABLE IF NOT EXISTS ws_client_mapping (
   created_at INTEGER NOT NULL,
   FOREIGN KEY (participant_id) REFERENCES participants(id)
 );
+
+-- Sessions this supervisor is watching (only populated for supervisor DOs)
+CREATE TABLE IF NOT EXISTS watched_sessions (
+  session_id TEXT PRIMARY KEY,
+  session_title TEXT,
+  added_at INTEGER NOT NULL
+);
+
+-- Buffered events forwarded from watched sessions (only populated for supervisor DOs)
+CREATE TABLE IF NOT EXISTS forwarded_event_buffer (
+  id TEXT PRIMARY KEY,
+  source_session_id TEXT NOT NULL,
+  source_session_title TEXT,
+  event_type TEXT NOT NULL,
+  event_data TEXT NOT NULL,
+  received_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_fwd_events_received ON forwarded_event_buffer(received_at);
 
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);
@@ -382,6 +401,44 @@ export const MIGRATIONS: readonly SchemaMigration[] = [
     id: 30,
     description: "Add total_cost to session",
     run: `ALTER TABLE session ADD COLUMN total_cost REAL NOT NULL DEFAULT 0`,
+  },
+  {
+    id: 31,
+    description: "Add session_role to session",
+    run: `ALTER TABLE session ADD COLUMN session_role TEXT NOT NULL DEFAULT 'default'`,
+  },
+  {
+    id: 32,
+    description: "Create watched_sessions table for supervisor DOs",
+    run: (sql) => {
+      sql.exec(`
+        CREATE TABLE IF NOT EXISTS watched_sessions (
+          session_id TEXT PRIMARY KEY,
+          session_title TEXT,
+          added_at INTEGER NOT NULL
+        )
+      `);
+    },
+  },
+  {
+    id: 33,
+    description: "Create forwarded_event_buffer table for supervisor DOs",
+    run: (sql) => {
+      sql.exec(`
+        CREATE TABLE IF NOT EXISTS forwarded_event_buffer (
+          id TEXT PRIMARY KEY,
+          source_session_id TEXT NOT NULL,
+          source_session_title TEXT,
+          event_type TEXT NOT NULL,
+          event_data TEXT NOT NULL,
+          received_at INTEGER NOT NULL
+        )
+      `);
+      sql.exec(`
+        CREATE INDEX IF NOT EXISTS idx_fwd_events_received
+          ON forwarded_event_buffer(received_at)
+      `);
+    },
   },
 ];
 

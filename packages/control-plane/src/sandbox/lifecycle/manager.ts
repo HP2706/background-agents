@@ -413,6 +413,7 @@ export class SandboxLifecycleManager {
         branch: session.base_branch,
         codeServerEnabled,
         sandboxSettings,
+        sessionRole: session.session_role,
       };
 
       const result = await this.provider.createSandbox(createConfig);
@@ -550,6 +551,7 @@ export class SandboxLifecycleManager {
         branch: session.base_branch,
         codeServerEnabled,
         sandboxSettings,
+        sessionRole: session.session_role,
       });
 
       if (result.success) {

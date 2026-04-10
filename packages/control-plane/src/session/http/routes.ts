@@ -33,6 +33,13 @@ export interface SessionInternalRouteHandlers {
   childSummary: SessionInternalRouteHandler;
   cancel: SessionInternalRouteHandler;
   childSessionUpdate: SessionInternalRouteHandler;
+  // Supervisor
+  supervisorForwardEvent: SessionInternalRouteHandler;
+  supervisorListWatched: SessionInternalRouteHandler;
+  supervisorAddWatched: SessionInternalRouteHandler;
+  supervisorRemoveWatched: SessionInternalRouteHandler;
+  supervisorGuidance: SessionInternalRouteHandler;
+  registerSupervisor: SessionInternalRouteHandler;
 }
 
 /**
@@ -83,6 +90,37 @@ export function createSessionInternalRoutes(
       method: "POST",
       path: SessionInternalPaths.childSessionUpdate,
       handler: handlers.childSessionUpdate,
+    },
+    // Supervisor routes
+    {
+      method: "POST",
+      path: SessionInternalPaths.supervisorForwardEvent,
+      handler: handlers.supervisorForwardEvent,
+    },
+    {
+      method: "GET",
+      path: SessionInternalPaths.supervisorWatchedSessions,
+      handler: handlers.supervisorListWatched,
+    },
+    {
+      method: "POST",
+      path: SessionInternalPaths.supervisorAddWatched,
+      handler: handlers.supervisorAddWatched,
+    },
+    {
+      method: "POST",
+      path: SessionInternalPaths.supervisorRemoveWatched,
+      handler: handlers.supervisorRemoveWatched,
+    },
+    {
+      method: "POST",
+      path: SessionInternalPaths.supervisorGuidance,
+      handler: handlers.supervisorGuidance,
+    },
+    {
+      method: "POST",
+      path: SessionInternalPaths.registerSupervisor,
+      handler: handlers.registerSupervisor,
     },
   ];
 }

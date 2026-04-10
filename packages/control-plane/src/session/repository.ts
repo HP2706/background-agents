@@ -67,6 +67,7 @@ export interface UpsertSessionData {
   model: string;
   reasoningEffort?: string | null;
   status: SessionStatus;
+  sessionRole?: string;
   parentSessionId?: string | null;
   spawnSource?: SpawnSource;
   spawnDepth?: number;
@@ -233,8 +234,8 @@ export class SessionRepository {
 
   upsertSession(data: UpsertSessionData): void {
     this.sql.exec(
-      `INSERT OR REPLACE INTO session (id, session_name, title, repo_owner, repo_name, repo_id, base_branch, model, reasoning_effort, status, parent_session_id, spawn_source, spawn_depth, code_server_enabled, sandbox_settings, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO session (id, session_name, title, repo_owner, repo_name, repo_id, base_branch, model, reasoning_effort, status, session_role, parent_session_id, spawn_source, spawn_depth, code_server_enabled, sandbox_settings, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       data.id,
       data.sessionName,
       data.title,
@@ -245,6 +246,7 @@ export class SessionRepository {
       data.model,
       data.reasoningEffort ?? null,
       data.status,
+      data.sessionRole ?? "default",
       data.parentSessionId ?? null,
       data.spawnSource ?? "user",
       data.spawnDepth ?? 0,
@@ -854,5 +856,92 @@ export class SessionRepository {
     );
     const rows = result.toArray() as Array<{ author_id: string }>;
     return rows[0] ?? null;
+  }
+
+  // === SUPERVISOR ===
+
+  getSessionRole(): string {
+    const result = this.sql.exec(`SELECT session_role FROM session LIMIT 1`);
+    const rows = result.toArray() as Array<{ session_role: string }>;
+    return rows[0]?.session_role ?? "default";
+  }
+
+  addWatchedSession(sessionId: string, title: string | null): void {
+    this.sql.exec(
+      `INSERT OR IGNORE INTO watched_sessions (session_id, session_title, added_at) VALUES (?, ?, ?)`,
+      sessionId,
+      title,
+      Date.now()
+    );
+  }
+
+  removeWatchedSession(sessionId: string): void {
+    this.sql.exec(`DELETE FROM watched_sessions WHERE session_id = ?`, sessionId);
+  }
+
+  listWatchedSessions(): Array<{
+    session_id: string;
+    session_title: string | null;
+    added_at: number;
+  }> {
+    const result = this.sql.exec(
+      `SELECT session_id, session_title, added_at FROM watched_sessions ORDER BY added_at ASC`
+    );
+    return this.rows<{ session_id: string; session_title: string | null; added_at: number }>(
+      result
+    );
+  }
+
+  bufferForwardedEvent(
+    id: string,
+    sourceSessionId: string,
+    sourceTitle: string | null,
+    eventType: string,
+    eventData: string,
+    receivedAt: number
+  ): void {
+    this.sql.exec(
+      `INSERT INTO forwarded_event_buffer (id, source_session_id, source_session_title, event_type, event_data, received_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      id,
+      sourceSessionId,
+      sourceTitle,
+      eventType,
+      eventData,
+      receivedAt
+    );
+  }
+
+  drainForwardedEventBuffer(limit = 100): Array<{
+    id: string;
+    source_session_id: string;
+    source_session_title: string | null;
+    event_type: string;
+    event_data: string;
+    received_at: number;
+  }> {
+    const result = this.sql.exec(
+      `SELECT * FROM forwarded_event_buffer ORDER BY received_at ASC LIMIT ?`,
+      limit
+    );
+    return this.rows<{
+      id: string;
+      source_session_id: string;
+      source_session_title: string | null;
+      event_type: string;
+      event_data: string;
+      received_at: number;
+    }>(result);
+  }
+
+  clearForwardedEvents(ids: string[]): void {
+    if (ids.length === 0) return;
+    const placeholders = ids.map(() => "?").join(",");
+    this.sql.exec(`DELETE FROM forwarded_event_buffer WHERE id IN (${placeholders})`, ...ids);
+  }
+
+  getForwardedEventBufferCount(): number {
+    const result = this.sql.exec(`SELECT COUNT(*) as count FROM forwarded_event_buffer`);
+    return (result.one() as { count: number }).count;
   }
 }

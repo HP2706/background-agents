@@ -66,6 +66,8 @@ export interface CreateSandboxConfig {
   codeServerEnabled?: boolean;
   /** Sandbox settings (tunnel ports, etc.) resolved from integration settings */
   sandboxSettings?: SandboxSettings;
+  /** Session role ("default" or "supervisor") — controls which tools are installed */
+  sessionRole?: string;
 }
 
 /**
@@ -124,6 +126,8 @@ export interface RestoreConfig {
   codeServerEnabled?: boolean;
   /** Sandbox settings (tunnel ports, etc.) resolved from integration settings */
   sandboxSettings?: SandboxSettings;
+  /** Session role ("default" or "supervisor") — controls which tools are installed */
+  sessionRole?: string;
 }
 
 /**

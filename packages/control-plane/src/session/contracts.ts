@@ -24,6 +24,13 @@ export const SessionInternalPaths = {
   updateTitle: "/internal/update-title",
   cancel: "/internal/cancel",
   childSessionUpdate: "/internal/child-session-update",
+  // Supervisor endpoints
+  supervisorForwardEvent: "/internal/supervisor-forward-event",
+  supervisorWatchedSessions: "/internal/supervisor-watched-sessions",
+  supervisorAddWatched: "/internal/supervisor-add-watched",
+  supervisorRemoveWatched: "/internal/supervisor-remove-watched",
+  supervisorGuidance: "/internal/supervisor-guidance",
+  registerSupervisor: "/internal/register-supervisor",
 } as const;
 
 export type SessionInternalPath = (typeof SessionInternalPaths)[keyof typeof SessionInternalPaths];

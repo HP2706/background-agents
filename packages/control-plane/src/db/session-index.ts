@@ -1,4 +1,4 @@
-import type { SessionStatus, SpawnSource } from "@open-inspect/shared";
+import type { SessionRole, SessionStatus, SpawnSource } from "@open-inspect/shared";
 
 export interface SessionEntry {
   id: string;
@@ -9,6 +9,7 @@ export interface SessionEntry {
   reasoningEffort: string | null;
   baseBranch: string | null;
   status: SessionStatus;
+  sessionRole?: SessionRole;
   parentSessionId?: string | null;
   spawnSource?: SpawnSource;
   spawnDepth?: number;
@@ -27,6 +28,7 @@ interface SessionRow {
   reasoning_effort: string | null;
   base_branch: string | null;
   status: SessionStatus;
+  session_role: string;
   parent_session_id: string | null;
   spawn_source: SpawnSource;
   spawn_depth: number;
@@ -61,6 +63,7 @@ function toEntry(row: SessionRow): SessionEntry {
     reasoningEffort: row.reasoning_effort,
     baseBranch: row.base_branch,
     status: row.status,
+    sessionRole: (row.session_role as SessionRole) ?? "default",
     parentSessionId: row.parent_session_id,
     spawnSource: row.spawn_source,
     spawnDepth: row.spawn_depth,
@@ -77,18 +80,19 @@ export class SessionIndexStore {
   async create(session: SessionEntry): Promise<void> {
     await this.db
       .prepare(
-        `INSERT OR IGNORE INTO sessions (id, title, repo_owner, repo_name, model, reasoning_effort, base_branch, status, parent_session_id, spawn_source, spawn_depth, automation_id, automation_run_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT OR IGNORE INTO sessions (id, title, repo_owner, repo_name, model, reasoning_effort, base_branch, status, session_role, parent_session_id, spawn_source, spawn_depth, automation_id, automation_run_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         session.id,
         session.title,
-        session.repoOwner.toLowerCase(),
-        session.repoName.toLowerCase(),
+        (session.repoOwner ?? "").toLowerCase(),
+        (session.repoName ?? "").toLowerCase(),
         session.model,
         session.reasoningEffort,
         session.baseBranch,
         session.status,
+        session.sessionRole ?? "default",
         session.parentSessionId ?? null,
         session.spawnSource ?? "user",
         session.spawnDepth ?? 0,
@@ -239,5 +243,50 @@ export class SessionIndexStore {
       .bind(sessionId)
       .first<{ spawn_depth: number }>();
     return result?.spawn_depth ?? 0;
+  }
+
+  // ─── Supervisor watch management ──────────────────────────────────────────
+
+  /** Register a supervisor→watched session relationship. */
+  async addWatch(supervisorSessionId: string, watchedSessionId: string): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT OR IGNORE INTO supervisor_watches (supervisor_session_id, watched_session_id, created_at)
+         VALUES (?, ?, ?)`
+      )
+      .bind(supervisorSessionId, watchedSessionId, Date.now())
+      .run();
+  }
+
+  /** Remove a supervisor→watched session relationship. */
+  async removeWatch(supervisorSessionId: string, watchedSessionId: string): Promise<void> {
+    await this.db
+      .prepare(
+        `DELETE FROM supervisor_watches WHERE supervisor_session_id = ? AND watched_session_id = ?`
+      )
+      .bind(supervisorSessionId, watchedSessionId)
+      .run();
+  }
+
+  /** List all session IDs watched by a given supervisor. */
+  async listWatchedBy(supervisorSessionId: string): Promise<string[]> {
+    const result = await this.db
+      .prepare(
+        `SELECT watched_session_id FROM supervisor_watches WHERE supervisor_session_id = ? ORDER BY created_at ASC`
+      )
+      .bind(supervisorSessionId)
+      .all<{ watched_session_id: string }>();
+    return (result.results || []).map((r) => r.watched_session_id);
+  }
+
+  /** List all supervisor session IDs that are watching a given session. */
+  async listWatchersOf(watchedSessionId: string): Promise<string[]> {
+    const result = await this.db
+      .prepare(
+        `SELECT supervisor_session_id FROM supervisor_watches WHERE watched_session_id = ? ORDER BY created_at ASC`
+      )
+      .bind(watchedSessionId)
+      .all<{ supervisor_session_id: string }>();
+    return (result.results || []).map((r) => r.supervisor_session_id);
   }
 }

@@ -5,6 +5,9 @@ import { createAlarmHandler } from "./handler";
 function createHandler() {
   const repository = {
     getProcessingMessageWithStartedAt: vi.fn(),
+    getSessionRole: vi.fn(() => "default"),
+    drainForwardedEventBuffer: vi.fn(() => []),
+    clearForwardedEvents: vi.fn(),
   };
   const messageQueue = {
     failStuckProcessingMessage: vi.fn<() => Promise<void>>().mockResolvedValue(),
@@ -28,6 +31,7 @@ function createHandler() {
     executionTimeoutMs: 1000,
     now,
     getLog: () => log,
+    enqueueReviewPrompt: vi.fn<() => Promise<void>>().mockResolvedValue(),
   });
 
   return {

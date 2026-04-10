@@ -271,6 +271,19 @@ class SandboxSupervisor:
 
         return await self._update_existing_repo()
 
+    # Tools installed per session role.
+    # _bridge-client.js is always installed as a shared dependency.
+    _DEFAULT_TOOLS: list[str] = [
+        "spawn-task.js",
+        "get-task-status.js",
+        "cancel-task.js",
+    ]
+    _SUPERVISOR_TOOLS: list[str] = [
+        "list-watched-sessions.js",
+        "send-guidance.js",
+        "get-session-events.js",
+    ]
+
     def _install_tools(self, workdir: Path) -> None:
         """Copy custom tools into the .opencode/tool directory for OpenCode to discover."""
         opencode_dir = workdir / ".opencode"
@@ -287,14 +300,24 @@ class SandboxSupervisor:
 
         tool_dest.mkdir(parents=True, exist_ok=True)
 
-        if legacy_tool.exists():
+        session_role = self.session_config.get("session_role", "default")
+
+        # Legacy tool only for default sessions (supervisors don't need PR creation)
+        if session_role != "supervisor" and legacy_tool.exists():
             shutil.copy(legacy_tool, tool_dest / "create-pull-request.js")
 
-        # Copy all .js files from tools/ (including _-prefixed internal modules)
+        # Select role-appropriate tool set
+        if session_role == "supervisor":
+            allowed_tools = set(self._SUPERVISOR_TOOLS)
+        else:
+            allowed_tools = set(self._DEFAULT_TOOLS)
+
+        # Copy selected tools + shared internal modules (_-prefixed)
         if tools_dir.exists():
             for tool_file in tools_dir.iterdir():
                 if tool_file.is_file() and tool_file.suffix == ".js":
-                    shutil.copy(tool_file, tool_dest / tool_file.name)
+                    if tool_file.name.startswith("_") or tool_file.name in allowed_tools:
+                        shutil.copy(tool_file, tool_dest / tool_file.name)
 
         # Node modules symlink
         node_modules = opencode_dir / "node_modules"
@@ -488,7 +511,7 @@ class SandboxSupervisor:
         # Model format is "provider/model", e.g. "anthropic/claude-sonnet-4-6"
         provider = self.session_config.get("provider", "anthropic")
         model = self.session_config.get("model", "claude-sonnet-4-6")
-        opencode_config = {
+        opencode_config: dict[str, object] = {
             "model": f"{provider}/{model}",
             "permission": {
                 "*": {
@@ -496,6 +519,27 @@ class SandboxSupervisor:
                 },
             },
         }
+
+        session_role = self.session_config.get("session_role", "default")
+        if session_role == "supervisor":
+            opencode_config["systemPrompt"] = (
+                "You are a Supervisor Agent monitoring coding sessions. "
+                "You receive periodic batches of events from watched sessions.\n\n"
+                "Your job:\n"
+                "1. DETECT problems: repeated tool errors (3+ same error), stalls "
+                "(no file edits after many events), file conflicts (two sessions "
+                "editing the same file), systemic failures (same error across sessions).\n"
+                "2. INTERVENE when needed: use send-guidance to inject corrective instructions.\n"
+                "3. STAY QUIET when things are fine. Not every batch needs action.\n\n"
+                "When sending guidance:\n"
+                "- Be specific and actionable — reference the actual errors you observed\n"
+                "- Suggest concrete next steps (2-4 sentences)\n"
+                "- Don't micromanage successful sessions\n\n"
+                "Available tools:\n"
+                "- list-watched-sessions: See all monitored sessions\n"
+                "- get-session-events: Fetch recent events from a specific session\n"
+                "- send-guidance: Inject a follow-up message into a watched session"
+            )
 
         # Determine working directory - use repo path if cloned, otherwise /workspace
         workdir = self.workspace_path
@@ -1001,9 +1045,13 @@ class SandboxSupervisor:
 
         git_sync_success = False
         opencode_ready = False
+        session_role = self.session_config.get("session_role", "default")
         try:
-            # Phase 1: Git sync
-            if restored_from_snapshot:
+            # Phase 1: Git sync (supervisors skip — they don't work on a repo)
+            if session_role == "supervisor":
+                git_sync_success = True
+                self.log.info("git_sync.skip", reason="supervisor_session")
+            elif restored_from_snapshot:
                 await self._update_existing_repo()  # best-effort
                 git_sync_success = True
             elif from_repo_image:

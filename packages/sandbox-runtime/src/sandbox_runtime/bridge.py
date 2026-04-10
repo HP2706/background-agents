@@ -792,6 +792,7 @@ class AgentBridge:
                 provider_id, model_id = model.split("/", 1)
             else:
                 provider_id, model_id = "anthropic", model
+
             model_spec: dict[str, Any] = {
                 "providerID": provider_id,
                 "modelID": model_id,

@@ -22,6 +22,8 @@ interface SessionSandboxEventProcessorDeps {
   updateLastActivity: (timestamp: number) => void;
   scheduleInactivityCheck: () => Promise<void>;
   processMessageQueue: () => Promise<void>;
+  getSupervisorIds: () => Set<string>;
+  forwardToSupervisors: (event: SandboxEvent) => void;
 }
 
 /** Event types that require delivery acknowledgement. */
@@ -31,6 +33,14 @@ const CRITICAL_EVENT_TYPES: ReadonlySet<string> = new Set([
   "snapshot_ready",
   "push_complete",
   "push_error",
+]);
+
+/** Event types forwarded to supervisor sessions for cross-session monitoring. */
+const FORWARDABLE_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "tool_call",
+  "error",
+  "execution_complete",
+  "step_finish",
 ]);
 
 export class SessionSandboxEventProcessor {
@@ -76,6 +86,7 @@ export class SessionSandboxEventProcessor {
         this.deps.repository.addSessionCost(event.cost);
       }
       this.deps.broadcast({ type: "sandbox_event", event });
+      this.maybeForwardToSupervisors(event);
       return;
     }
 
@@ -102,6 +113,7 @@ export class SessionSandboxEventProcessor {
           })
         );
       }
+      this.maybeForwardToSupervisors(event);
       return;
     }
 
@@ -172,6 +184,7 @@ export class SessionSandboxEventProcessor {
       await this.deps.scheduleInactivityCheck();
       await this.deps.processMessageQueue();
       this.sendAck(ackId);
+      this.maybeForwardToSupervisors(event);
       return;
     }
 
@@ -196,6 +209,7 @@ export class SessionSandboxEventProcessor {
     }
 
     this.deps.broadcast({ type: "sandbox_event", event });
+    this.maybeForwardToSupervisors(event);
 
     if (CRITICAL_EVENT_TYPES.has(event.type)) {
       this.sendAck(ackId);
@@ -287,6 +301,16 @@ export class SessionSandboxEventProcessor {
     } else {
       this.deps.log.debug("Cannot send ACK: no sandbox socket", { ack_id: ackId });
     }
+  }
+
+  /**
+   * Forward the event to supervisor sessions if it's a forwardable type
+   * and there are supervisors registered.
+   */
+  private maybeForwardToSupervisors(event: SandboxEvent): void {
+    if (this.deps.getSupervisorIds().size === 0) return;
+    if (!FORWARDABLE_EVENT_TYPES.has(event.type)) return;
+    this.deps.forwardToSupervisors(event);
   }
 
   private normalizeBranchName(name: string): string {

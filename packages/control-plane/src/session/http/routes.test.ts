@@ -30,6 +30,13 @@ describe("createSessionInternalRoutes", () => {
       childSummary: noopHandler(),
       cancel: noopHandler(),
       childSessionUpdate: noopHandler(),
+      // Supervisor
+      supervisorForwardEvent: noopHandler(),
+      supervisorListWatched: noopHandler(),
+      supervisorAddWatched: noopHandler(),
+      supervisorRemoveWatched: noopHandler(),
+      supervisorGuidance: noopHandler(),
+      registerSupervisor: noopHandler(),
     });
 
     const methodPathSet = new Set(routes.map((route) => `${route.method} ${route.path}`));
@@ -57,6 +64,13 @@ describe("createSessionInternalRoutes", () => {
         `GET ${SessionInternalPaths.childSummary}`,
         `POST ${SessionInternalPaths.cancel}`,
         `POST ${SessionInternalPaths.childSessionUpdate}`,
+        // Supervisor
+        `POST ${SessionInternalPaths.supervisorForwardEvent}`,
+        `GET ${SessionInternalPaths.supervisorWatchedSessions}`,
+        `POST ${SessionInternalPaths.supervisorAddWatched}`,
+        `POST ${SessionInternalPaths.supervisorRemoveWatched}`,
+        `POST ${SessionInternalPaths.supervisorGuidance}`,
+        `POST ${SessionInternalPaths.registerSupervisor}`,
       ])
     );
   });

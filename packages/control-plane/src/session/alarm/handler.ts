@@ -5,12 +5,28 @@ import type { SessionMessageQueue } from "../message-queue";
 import type { SessionRepository } from "../repository";
 
 export interface AlarmHandlerDeps {
-  repository: Pick<SessionRepository, "getProcessingMessageWithStartedAt">;
+  repository: Pick<
+    SessionRepository,
+    | "getProcessingMessageWithStartedAt"
+    | "getSessionRole"
+    | "drainForwardedEventBuffer"
+    | "clearForwardedEvents"
+  >;
   messageQueue: Pick<SessionMessageQueue, "failStuckProcessingMessage">;
   lifecycleManager: Pick<SandboxLifecycleManager, "handleAlarm">;
   executionTimeoutMs: number;
   now: () => number;
   getLog: () => Logger;
+  enqueueReviewPrompt: (
+    events: Array<{
+      id: string;
+      source_session_id: string;
+      source_session_title: string | null;
+      event_type: string;
+      event_data: string;
+      received_at: number;
+    }>
+  ) => Promise<void>;
 }
 
 export interface AlarmHandler {
@@ -21,7 +37,8 @@ export interface AlarmHandler {
  * Durable Object alarm handler.
  *
  * Checks for stuck processing messages (defense-in-depth execution timeout)
- * before delegating to lifecycle alarm processing.
+ * before delegating to lifecycle alarm processing. For supervisor sessions,
+ * also drains the forwarded event buffer and enqueues a review prompt.
  */
 export function createAlarmHandler(deps: AlarmHandlerDeps): AlarmHandler {
   return {
@@ -46,6 +63,18 @@ export function createAlarmHandler(deps: AlarmHandlerDeps): AlarmHandler {
             timeout_ms: deps.executionTimeoutMs,
           });
           await deps.messageQueue.failStuckProcessingMessage();
+        }
+      }
+
+      // Supervisor: drain forwarded event buffer and enqueue review prompt
+      if (deps.repository.getSessionRole() === "supervisor") {
+        const bufferedEvents = deps.repository.drainForwardedEventBuffer(100);
+        if (bufferedEvents.length > 0) {
+          deps.getLog().info("Supervisor draining event buffer", {
+            event_count: bufferedEvents.length,
+          });
+          await deps.enqueueReviewPrompt(bufferedEvents);
+          deps.repository.clearForwardedEvents(bufferedEvents.map((e) => e.id));
         }
       }
 
